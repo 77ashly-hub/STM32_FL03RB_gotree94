@@ -1,0 +1,215 @@
+# 볼 스위치 모듈 (Ball/Vibration Switch Module) - STM32F103
+
+## 📋 개요
+
+<img width="200" height="200" alt="KY-002" src="https://github.com/user-attachments/assets/9e64d311-7849-4085-ad3e-db9b87f27555" />
+
+* 볼 스위치 모듈(KY-002)은 내부의 금속 볼이 진동이나 충격에 의해 움직여 순간적으로 접점을 연결하는 센서입니다. 
+* 진동, 충격, 노크 등의 감지에 활용됩니다.
+
+## 🔧 하드웨어 구성
+
+
+<img width="644" height="586" alt="F103RB-pin" src="https://github.com/user-attachments/assets/8143b40f-9914-4e1a-8ffd-6a06d699194b" />
+
+
+### 센서 모듈 사양
+
+| 항목 | 사양 |
+|------|------|
+| 동작 전압 | 3.3V ~ 5V |
+| 출력 타입 | 디지털 (펄스) |
+| 감도 | 약간의 진동/충격에 반응 |
+| 응답 시간 | < 1ms |
+| 출력 신호 | 평상시 HIGH, 감지 시 LOW 펄스 |
+
+### 핀 연결
+
+```
+Ball Switch Module          NUCLEO-F103RB
+==================          ===============
+    S (Signal)  --------->  PA0 (EXTI0)
+    + (VCC)     --------->  3.3V
+    - (GND)     --------->  GND
+```
+
+### 내부 구조
+
+```
+    ┌─────────────────┐
+    │    Spring       │
+    │      │          │
+    │    ┌─┴─┐        │
+    │    │ ○ │ Ball   │
+    │    └─┬─┘        │
+    │      │          │
+    │  ════╪════      │
+    │   Contact       │
+    └─────────────────┘
+    
+    진동/충격 시 볼이 움직여
+    접점에 순간 접촉
+```
+
+## 💻 소프트웨어 구성
+
+### 주요 기능
+
+1. **외부 인터럽트 감지**: 하강 엣지(Falling Edge) 트리거
+2. **감도 조절**: 연속 트리거 방지 타이머
+3. **강도 추정**: 단위 시간당 이벤트 수 계측
+4. **시각화**: 진동 강도 바 그래프 출력
+
+### 핵심 코드 설명
+
+```c
+#define SENSITIVITY_MS      100    /* 감도 조절 */
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+    if (GPIO_Pin == BALL_SWITCH_PIN) {
+        uint32_t current_time = HAL_GetTick();
+        
+        /* 감도 조절: 일정 시간 내 재트리거 무시 */
+        if ((current_time - last_shock_time) > SENSITIVITY_MS) {
+            shock_count++;
+            shock_detected = 1;
+            last_shock_time = current_time;
+        }
+    }
+}
+```
+
+### 감도 설정 가이드
+
+| SENSITIVITY_MS | 용도 |
+|----------------|------|
+| 50ms | 매우 민감 (미세 진동 감지) |
+| 100ms | 일반 (권장) |
+| 200ms | 낮은 감도 (강한 충격만) |
+| 500ms | 노크 감지용 |
+
+## 📁 프로젝트 구조
+
+```
+03_ball_switch/
+├── main.c              # 메인 애플리케이션
+├── README.md           # 프로젝트 문서
+└── STM32CubeIDE/       # (선택) IDE 프로젝트 파일
+```
+
+## 🚀 빌드 및 실행
+
+### STM32CubeIDE 사용
+
+1. 새 STM32 프로젝트 생성 (NUCLEO-F103RB 선택)
+2. `main.c` 내용을 프로젝트에 복사
+3. 빌드 및 다운로드
+
+### 예상 출력
+
+```
+========================================
+  Ball/Vibration Switch Module Test
+  Board: NUCLEO-F103RB
+========================================
+
+Tap or shake the sensor to detect vibration.
+Sensitivity: 100ms between detections
+
+[    1] SHOCK! █
+[    2] SHOCK! ██
+[    3] SHOCK! ███
+  └─ Intensity this second: 3 events
+[    4] SHOCK! █
+[    5] SHOCK! ██████
+  └─ Intensity this second: 2 events
+```
+
+## 🎯 동작 원리
+
+### 신호 타이밍
+
+```
+        정지 상태        충격 발생         복귀
+            │               │               │
+    HIGH ───┴───────────────┬───────────────┴─── HIGH
+                            │
+    LOW                     └─┐  ← 펄스 (1~10ms)
+                              │
+                              └──────────────────
+                              
+    인터럽트 ─────────────────●────────────────────
+                           트리거
+```
+
+### 진동 강도 측정 원리
+
+```
+    약한 진동                    강한 진동
+    
+    │  │                        ││││││
+    │  │                        ││││││
+    ↓  ↓                        ↓↓↓↓↓↓
+    
+    2 events/sec                6 events/sec
+    ██                          ██████
+```
+
+## 📌 응용 아이디어
+
+1. **노크 감지 도어락**: 특정 노크 패턴 인식
+2. **낙하 감지**: 제품 배송 중 충격 모니터링
+3. **지진 감지기**: 진동 강도 기록
+4. **게임 컨트롤러**: 두드림 기반 입력
+5. **도난 방지**: 물체 이동/진동 감지 알람
+
+### 노크 패턴 인식 예제
+
+```c
+/* 3번 노크 감지 */
+#define KNOCK_PATTERN_COUNT  3
+#define KNOCK_WINDOW_MS      2000
+
+uint32_t knock_times[3];
+uint8_t knock_index = 0;
+
+void check_knock_pattern(void) {
+    knock_times[knock_index++] = HAL_GetTick();
+    
+    if (knock_index >= KNOCK_PATTERN_COUNT) {
+        /* 3번의 노크가 2초 이내에 발생했는지 확인 */
+        if (knock_times[2] - knock_times[0] < KNOCK_WINDOW_MS) {
+            printf("Knock pattern detected!\r\n");
+            /* 도어 열기 등의 동작 */
+        }
+        knock_index = 0;
+    }
+}
+```
+
+## ⚠️ 주의사항
+
+- 매우 민감하므로 케이블 진동으로도 오작동 가능
+- 고정 브래킷 사용하여 안정적으로 설치
+- 차량 등 진동 환경에서는 감도 조절 필요
+- 접점 바운싱이 심할 수 있으므로 디바운싱 필수
+
+## 🔍 각도 스위치와의 비교
+
+| 특성 | 볼 스위치 | 각도 스위치 |
+|------|----------|-------------|
+| 감지 방식 | 진동/충격 | 기울기 |
+| 출력 | 순간 펄스 | 지속 상태 |
+| 민감도 | 매우 높음 | 중간 |
+| 용도 | 충격 감지 | 자세 감지 |
+| 안정성 | 낮음 | 높음 |
+
+## 📚 참고 자료
+
+- [STM32F103 Reference Manual](https://www.st.com/resource/en/reference_manual/rm0008-stm32f101xx-stm32f102xx-stm32f103xx-stm32f105xx-and-stm32f107xx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf)
+- [NUCLEO-F103RB User Manual](https://www.st.com/resource/en/user_manual/um1724-stm32-nucleo64-boards-mb1136-stmicroelectronics.pdf)
+- [KY-002 Vibration Switch Datasheet](https://arduinomodules.info/ky-002-vibration-switch-module/)
+
+## 📝 라이선스
+
+MIT License - 자유롭게 사용, 수정, 배포 가능
